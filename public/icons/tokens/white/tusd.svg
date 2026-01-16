@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Simple T symbol for TrueUSD -->
+  <rect x="10" y="15" width="80" height="16" rx="2" fill="#ffffff"/>
+  <rect x="38" y="15" width="24" height="70" rx="2" fill="#ffffff"/>
+</svg>
