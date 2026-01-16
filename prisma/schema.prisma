@@ -1,0 +1,339 @@
+// VLink Production Database Schema
+// Multi-chain stablecoin payment platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  CONSUMER
+  MERCHANT
+  ADMIN
+}
+
+enum ChainType {
+  EVM
+  SOLANA
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  CONFIRMED
+  FAILED
+  EXPIRED
+  REFUNDED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+// ============================================================================
+// USER & AUTH MODELS
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  role          UserRole  @default(CONSUMER)
+  preferences   Json      @default("{}")
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  wallets       Wallet[]
+  sessions      UserSession[]
+  otpCodes      OTPCode[]
+  merchant      Merchant?
+  auditLogs     AuditLog[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Wallet {
+  id         String    @id @default(cuid())
+  userId     String
+  address    String
+  chainId    String
+  chainType  ChainType
+  label      String?
+  isDefault  Boolean   @default(false)
+  isVerified Boolean   @default(false)
+  verifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([address, chainId])
+  @@index([userId])
+  @@index([address])
+}
+
+model OTPCode {
+  id        String   @id @default(cuid())
+  userId    String
+  email     String
+  code      String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email, code])
+  @@index([expiresAt])
+}
+
+model UserSession {
+  id           String    @id @default(cuid())
+  userId       String
+  token        String    @unique
+  userAgent    String?
+  ipAddress    String?
+  lastActiveAt DateTime  @default(now())
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// MERCHANT MODELS
+// ============================================================================
+
+model Merchant {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  name       String
+  email      String
+  website    String?
+  logoUrl    String?
+  settings   Json     @default("{}")
+  isVerified Boolean  @default(false)
+  verifiedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKeys       MerchantApiKey[]
+  webhooks      Webhook[]
+  balances      MerchantBalance[]
+  paymentIntents PaymentIntent[]
+  payments      Payment[]
+  withdrawals   Withdrawal[]
+
+  @@index([email])
+  @@index([isVerified])
+}
+
+model MerchantApiKey {
+  id          String    @id @default(cuid())
+  merchantId  String
+  name        String
+  keyPrefix   String    // First 8 characters for identification
+  keyHash     String    // SHA256 hash of the full key
+  permissions Json      @default("[]")
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([keyPrefix])
+  @@index([merchantId])
+  @@index([keyHash])
+  @@index([isActive])
+}
+
+model Webhook {
+  id         String   @id @default(cuid())
+  merchantId String
+  url        String
+  secret     String   // HMAC secret for signature verification
+  events     Json     @default("[]") // Array of event types
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  merchant   Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([merchantId])
+  @@index([isActive])
+}
+
+model WebhookDelivery {
+  id           String                @id @default(cuid())
+  webhookId    String
+  eventType    String
+  payload      Json
+  status       WebhookDeliveryStatus @default(PENDING)
+  attempts     Int                   @default(0)
+  lastAttempt  DateTime?
+  nextAttempt  DateTime?
+  responseCode Int?
+  responseBody String?
+  error        String?
+  deliveredAt  DateTime?
+  createdAt    DateTime              @default(now())
+
+  // Relations
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([status])
+  @@index([nextAttempt])
+}
+
+model MerchantBalance {
+  id         String   @id @default(cuid())
+  merchantId String
+  chainId    String
+  tokenId    String
+  amount     Decimal  @db.Decimal(36, 18) // High precision for crypto
+  amountUsd  Decimal  @db.Decimal(18, 2)
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, chainId, tokenId])
+  @@index([merchantId])
+}
+
+// ============================================================================
+// PAYMENT MODELS
+// ============================================================================
+
+model PaymentIntent {
+  id            String        @id @default(cuid())
+  merchantId    String
+  amount        Decimal       @db.Decimal(18, 2)
+  currency      String        @default("USD")
+  orderId       String?
+  customerEmail String?
+  description   String?
+  metadata      Json          @default("{}")
+  status        PaymentStatus @default(PENDING)
+  expiresAt     DateTime
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relations
+  merchant Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  payment  Payment?
+
+  @@index([merchantId])
+  @@index([orderId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model Payment {
+  id               String        @id @default(cuid())
+  intentId         String        @unique
+  merchantId       String
+  amount           Decimal       @db.Decimal(18, 2)
+  currency         String        @default("USD")
+  orderId          String?
+  customerEmail    String?
+  chainId          String
+  tokenId          String
+  tokenAmount      Decimal       @db.Decimal(36, 18)
+  senderAddress    String
+  recipientAddress String
+  transactionHash  String
+  blockNumber      BigInt?
+  status           PaymentStatus @default(PROCESSING)
+  confirmedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  // Relations
+  intent   PaymentIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  merchant Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId])
+  @@index([intentId])
+  @@index([orderId])
+  @@index([transactionHash])
+  @@index([status])
+  @@index([chainId, tokenId])
+}
+
+model Withdrawal {
+  id                 String           @id @default(cuid())
+  merchantId         String
+  amount             Decimal          @db.Decimal(36, 18)
+  tokenId            String
+  chainId            String
+  destinationAddress String
+  transactionHash    String?
+  status             WithdrawalStatus @default(PENDING)
+  processedAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  // Relations
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId])
+  @@index([status])
+}
+
+// ============================================================================
+// AUDIT LOG
+// ============================================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  details    Json     @default("{}")
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+}
