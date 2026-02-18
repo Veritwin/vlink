@@ -16,7 +16,19 @@ function createPrismaClient() {
     return new PrismaClient();
   }
 
-  const pool = new Pool({ connectionString });
+  // Parse connection string to detect Unix socket (host= parameter)
+  const url = new URL(connectionString.replace("postgresql://", "http://"));
+  const socketHost = url.searchParams.get("host");
+
+  const pool = socketHost
+    ? new Pool({
+        user: url.username || undefined,
+        database: url.pathname.slice(1) || undefined,
+        host: socketHost,
+        port: url.port ? parseInt(url.port) : 5432,
+      })
+    : new Pool({ connectionString });
+
   const adapter = new PrismaPg(pool);
 
   return new PrismaClient({

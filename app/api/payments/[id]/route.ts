@@ -9,12 +9,14 @@ interface PaymentIntentDetails {
   orderId?: string | null;
   customerEmail?: string | null;
   description?: string | null;
+  metadata?: Record<string, string> | null;
   status: string;
   expiresAt: string;
   createdAt: string;
   merchant: {
     name: string;
     logoUrl?: string | null;
+    receivingAddress?: string | null;
   };
   payment?: {
     chainId: string;
@@ -95,12 +97,14 @@ export async function GET(
         orderId: paymentIntent.orderId,
         customerEmail: paymentIntent.customerEmail,
         description: paymentIntent.description,
+        metadata: paymentIntent.metadata as Record<string, string> | null,
         status: paymentIntent.status.toLowerCase(),
         expiresAt: paymentIntent.expiresAt.toISOString(),
         createdAt: paymentIntent.createdAt.toISOString(),
         merchant: {
           name: paymentIntent.merchant.name,
           logoUrl: paymentIntent.merchant.logoUrl,
+          receivingAddress: (paymentIntent.merchant.settings as Record<string, unknown>)?.receivingAddress as string || null,
         },
         payment: paymentIntent.payment
           ? {

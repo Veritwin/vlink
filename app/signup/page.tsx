@@ -1,21 +1,51 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Zap, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
+import { Zap, ArrowRight, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function SignupPage() {
+  const router = useRouter();
   const [accountType, setAccountType] = useState<"user" | "merchant" | null>(null);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [businessName, setBusinessName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setIsLoading(false);
-    setIsComplete(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          role: accountType === "merchant" ? "MERCHANT" : "CONSUMER",
+          businessName: accountType === "merchant" ? businessName : undefined,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setError(data.error?.message || "Failed to create account");
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(false);
+      setIsComplete(true);
+    } catch {
+      setError("Failed to connect. Please try again.");
+      setIsLoading(false);
+    }
   };
 
   if (isComplete) {
@@ -26,14 +56,13 @@ export default function SignupPage() {
             <CheckCircle2 className="w-10 h-10 text-success-500" />
           </div>
           <h1 className="text-h1 font-display font-bold text-neutral-900 dark:text-white mb-4">
-            Check Your Email
+            Account Created
           </h1>
           <p className="text-neutral-600 dark:text-neutral-400 mb-8">
-            We&apos;ve sent a verification link to <strong>{email}</strong>.
-            Click the link to complete your registration.
+            Your account has been created successfully. You can now sign in.
           </p>
           <Link href="/login" className="btn-primary inline-flex">
-            Go to Login
+            Go to Sign In
           </Link>
         </div>
       </div>
@@ -113,6 +142,13 @@ export default function SignupPage() {
               {accountType === "user" ? "Personal" : "Business"} Account
             </h2>
 
+            {error && (
+              <div className="flex items-center gap-2 p-3 mb-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {error}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-4">
               {accountType === "merchant" && (
                 <div>
@@ -122,6 +158,8 @@ export default function SignupPage() {
                   <input
                     type="text"
                     required
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
                     className="input-field"
                     placeholder="Your company name"
                   />
@@ -142,18 +180,20 @@ export default function SignupPage() {
                 />
               </div>
 
-              {accountType === "merchant" && (
-                <div>
-                  <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
-                    Website (optional)
-                  </label>
-                  <input
-                    type="url"
-                    className="input-field"
-                    placeholder="https://yoursite.com"
-                  />
-                </div>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="input-field"
+                  placeholder="At least 6 characters"
+                  minLength={6}
+                />
+              </div>
 
               <div className="flex items-start gap-3 pt-2">
                 <input

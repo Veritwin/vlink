@@ -34,6 +34,8 @@ export const RATE_LIMITS = {
   // Auth endpoints - strict limits
   "auth:email": { requests: 5, window: 60 * 1000 }, // 5 per minute
   "auth:otp": { requests: 10, window: 60 * 1000 }, // 10 per minute
+  "auth:password": { requests: 10, window: 60 * 1000 }, // 10 per minute
+  "auth:signup": { requests: 5, window: 60 * 1000 }, // 5 per minute
   "auth:wallet": { requests: 10, window: 60 * 1000 }, // 10 per minute
 
   // Payment endpoints

@@ -1,13 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AuthElement } from "@/components/vlink";
 import { Zap } from "lucide-react";
 
 export default function LoginPage() {
+  const router = useRouter();
+
   const handleAuthenticated = (method: "email" | "wallet", identifier: string) => {
     console.log("Authenticated:", method, identifier);
-    // In production, would redirect to dashboard
+    router.push("/dashboard");
   };
 
   return (

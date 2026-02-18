@@ -46,6 +46,13 @@ enum WebhookDeliveryStatus {
   FAILED
 }
 
+enum SettlementStatus {
+  PENDING_SETTLEMENT
+  IN_PROGRESS
+  SETTLED
+  FAILED
+}
+
 // ============================================================================
 // USER & AUTH MODELS
 // ============================================================================
@@ -150,6 +157,7 @@ model Merchant {
   paymentIntents PaymentIntent[]
   payments      Payment[]
   withdrawals   Withdrawal[]
+  settlements   Settlement[]
 
   @@index([email])
   @@index([isVerified])
@@ -283,8 +291,9 @@ model Payment {
   updatedAt        DateTime      @updatedAt
 
   // Relations
-  intent   PaymentIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
-  merchant Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  intent     PaymentIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  merchant   Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  settlement Settlement?
 
   @@index([merchantId])
   @@index([intentId])
@@ -312,6 +321,36 @@ model Withdrawal {
 
   @@index([merchantId])
   @@index([status])
+}
+
+// ============================================================================
+// SETTLEMENT MODELS
+// ============================================================================
+
+model Settlement {
+  id                  String           @id @default(cuid())
+  paymentId           String           @unique
+  merchantId          String
+  sourceChain         String
+  sourceToken         String
+  sourceAmount        Decimal          @db.Decimal(36, 18)
+  destinationChain    String
+  destinationToken    String
+  destinationAddress  String
+  destinationAmount   Decimal          @db.Decimal(36, 18)
+  status              SettlementStatus @default(PENDING_SETTLEMENT)
+  bridgeTxHash        String?
+  settledAt           DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  // Relations
+  payment  Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  merchant Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId])
+  @@index([status])
+  @@index([paymentId])
 }
 
 // ============================================================================

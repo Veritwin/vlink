@@ -8,6 +8,12 @@ export const WEBHOOK_EVENTS = {
   "payment.expired": "Triggered when payment intent expires",
   "payment.refunded": "Triggered when payment is refunded",
 
+  // Settlement events
+  "settlement.created": "Triggered when a cross-chain settlement is created",
+  "settlement.processing": "Triggered when settlement bridge/swap is in progress",
+  "settlement.completed": "Triggered when settlement is completed on destination chain",
+  "settlement.failed": "Triggered when settlement bridge/swap fails",
+
   // Withdrawal events
   "withdrawal.requested": "Triggered when withdrawal is requested",
   "withdrawal.processing": "Triggered when withdrawal is being processed",
@@ -27,6 +33,10 @@ export function isValidEventType(event: string): event is WebhookEventType {
 // Get events by category
 export function getPaymentEvents(): WebhookEventType[] {
   return ALL_WEBHOOK_EVENTS.filter((e) => e.startsWith("payment."));
+}
+
+export function getSettlementEvents(): WebhookEventType[] {
+  return ALL_WEBHOOK_EVENTS.filter((e) => e.startsWith("settlement."));
 }
 
 export function getWithdrawalEvents(): WebhookEventType[] {

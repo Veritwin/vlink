@@ -10,6 +10,7 @@ import {
 import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
+import { useState, useEffect } from "react";
 import { getSupportedChains, getTransports } from "@/lib/chains/config";
 
 // Create wagmi config
@@ -40,13 +41,18 @@ interface RainbowKitProviderProps {
 
 export function RainbowKitProvider({ children }: RainbowKitProviderProps) {
   const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <RKProvider
           theme={
-            resolvedTheme === "dark"
+            mounted && resolvedTheme === "dark"
               ? darkTheme({
                   accentColor: "#6366f1",
                   accentColorForeground: "white",

@@ -145,10 +145,45 @@ export const authOtpSchema = z.object({
     .regex(/^\d+$/, "OTP must contain only numbers"),
 });
 
+export const authPasswordSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+export const authSignupSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  role: z.enum(["CONSUMER", "MERCHANT"]).default("CONSUMER"),
+  businessName: z.string().min(1, "Business name is required").optional(),
+});
+
 export const authWalletSchema = z.object({
   address: z.string().min(1, "Wallet address required"),
   signature: z.string().min(1, "Signature required"),
   message: z.string().min(1, "Message required"),
+});
+
+/**
+ * Checkout session schema (public-facing, auth via x-api-key)
+ */
+export const createCheckoutSchema = z.object({
+  amount: z
+    .number()
+    .positive("Amount must be positive")
+    .max(10000000, "Amount exceeds maximum limit"),
+  currency: z
+    .string()
+    .length(3, "Currency must be 3 characters")
+    .default("USD"),
+  description: z.string().max(500).optional(),
+  metadata: z.record(z.string()).optional(),
+  successUrl: z.string().url("Valid success URL required").optional(),
+  cancelUrl: z.string().url("Valid cancel URL required").optional(),
+  expiresIn: z
+    .number()
+    .min(300, "Minimum expiry is 5 minutes")
+    .max(86400, "Maximum expiry is 24 hours")
+    .default(3600),
 });
 
 /**
@@ -174,5 +209,8 @@ export type WebhookConfigInput = z.infer<typeof webhookConfigSchema>;
 export type MerchantSettingsInput = z.infer<typeof merchantSettingsSchema>;
 export type AuthEmailInput = z.infer<typeof authEmailSchema>;
 export type AuthOtpInput = z.infer<typeof authOtpSchema>;
+export type AuthPasswordInput = z.infer<typeof authPasswordSchema>;
+export type AuthSignupInput = z.infer<typeof authSignupSchema>;
 export type AuthWalletInput = z.infer<typeof authWalletSchema>;
+export type CreateCheckoutInput = z.infer<typeof createCheckoutSchema>;
 export type ContactFormInput = z.infer<typeof contactFormSchema>;

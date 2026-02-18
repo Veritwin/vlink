@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   useAccount,
   useChainId,
@@ -47,6 +47,7 @@ interface PaymentIntent {
   amount: number;
   currency: string;
   description?: string;
+  metadata?: Record<string, string> | null;
   status: string;
   expiresAt: string;
   merchant: {
@@ -55,15 +56,22 @@ interface PaymentIntent {
   };
 }
 
+interface PresaleMetadata {
+  tokenName: string;
+  pricePerToken: string;
+  tokenQuantity: string;
+}
+
 type PaymentStatus = "loading" | "ready" | "connecting" | "confirming" | "processing" | "success" | "error" | "expired";
 
-const SUPPORTED_CHAINS: ChainId[] = ["ethereum", "base", "polygon", "arbitrum", "optimism", "solana"];
-const SUPPORTED_TOKENS: TokenId[] = ["usdc", "usdt", "dai"];
+const SUPPORTED_CHAINS: ChainId[] = ["ethereum", "base", "polygon", "arbitrum", "optimism", "avalanche", "bnb", "solana"];
+const SUPPORTED_TOKENS: TokenId[] = ["usdc", "usdt", "dai", "frax", "pyusd", "tusd"];
 
 export default function PaymentPage() {
   const params = useParams();
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const intentId = params.intentId as string;
+  const isPopupMode = searchParams.get("mode") === "popup";
 
   // State
   const [paymentIntent, setPaymentIntent] = useState<PaymentIntent | null>(null);
@@ -94,6 +102,31 @@ export default function PaymentPage() {
   const isSolana = selectedChain === "solana";
   const isConnected = isSolana ? isSolanaConnected : isEvmConnected;
   const walletAddress = isSolana ? publicKey?.toBase58() : evmAddress;
+
+  // Extract presale metadata
+  const presale: PresaleMetadata | null = paymentIntent?.metadata?.presale
+    ? (typeof paymentIntent.metadata.presale === "string"
+        ? JSON.parse(paymentIntent.metadata.presale)
+        : paymentIntent.metadata.presale as unknown as PresaleMetadata)
+    : null;
+
+  // Send postMessage to parent in popup mode
+  const sendToOpener = useCallback((type: string, data?: Record<string, unknown>) => {
+    if (!isPopupMode || !window.opener) return;
+    try {
+      window.opener.postMessage({ type, data }, "*");
+    } catch {
+      // opener may have been closed
+    }
+  }, [isPopupMode]);
+
+  // Send close message on unmount in popup mode
+  useEffect(() => {
+    if (!isPopupMode) return;
+    return () => {
+      sendToOpener("vlink:payment_close");
+    };
+  }, [isPopupMode, sendToOpener]);
 
   // Fetch payment intent
   useEffect(() => {
@@ -168,6 +201,13 @@ export default function PaymentPage() {
       if (data.success && data.data.status === "confirmed") {
         setStatus("success");
         setTxHash(hash);
+        sendToOpener("vlink:payment_success", {
+          paymentId: data.data.id,
+          intentId: data.data.intentId,
+          transactionHash: hash,
+          chainId: data.data.chainId,
+          tokenId: data.data.tokenId,
+        });
       } else {
         // Still processing - poll for confirmation
         pollForConfirmation(hash);
@@ -175,8 +215,9 @@ export default function PaymentPage() {
     } catch (err) {
       setError("Failed to confirm payment");
       setStatus("error");
+      sendToOpener("vlink:payment_error", { code: "CONFIRM_FAILED", message: "Failed to confirm payment" });
     }
-  }, [intentId, selectedChain, selectedToken, walletAddress]);
+  }, [intentId, selectedChain, selectedToken, walletAddress, sendToOpener]);
 
   // Poll for confirmation
   const pollForConfirmation = useCallback(async (hash: string) => {
@@ -192,6 +233,11 @@ export default function PaymentPage() {
         if (data.data?.status === "confirmed") {
           setStatus("success");
           setTxHash(hash);
+          sendToOpener("vlink:payment_success", {
+            paymentId: data.data.payment?.id,
+            intentId,
+            transactionHash: hash,
+          });
           return;
         }
 
@@ -200,6 +246,7 @@ export default function PaymentPage() {
         } else {
           setError("Payment confirmation timed out. Please check your transaction.");
           setStatus("error");
+          sendToOpener("vlink:payment_error", { code: "TIMEOUT", message: "Payment confirmation timed out" });
         }
       } catch {
         if (attempts < maxAttempts) {
@@ -209,7 +256,7 @@ export default function PaymentPage() {
     };
 
     poll();
-  }, [intentId]);
+  }, [intentId, sendToOpener]);
 
   // Handle EVM payment
   const handleEvmPayment = useCallback(async () => {
@@ -233,8 +280,8 @@ export default function PaymentPage() {
     const decimals = TOKEN_METADATA[selectedToken]?.decimals || 6;
     const amount = parseUnits((paymentIntent.amount / 100).toString(), decimals);
 
-    // For demo, send to self (in production, this would be merchant address)
-    const recipientAddress = evmAddress;
+    // Send to merchant's configured receiving address
+    const recipientAddress = (paymentIntent as any).merchant?.receivingAddress || evmAddress;
 
     setStatus("confirming");
 
@@ -265,8 +312,10 @@ export default function PaymentPage() {
     const decimals = SOLANA_TOKEN_METADATA[selectedToken]?.decimals || 6;
     const amount = BigInt(Math.floor((paymentIntent.amount / 100) * Math.pow(10, decimals)));
 
-    // For demo, send to self
-    const recipientAddress = publicKey;
+    // Send to merchant's configured receiving address (Solana)
+    const recipientAddress = (paymentIntent as any).merchant?.receivingAddress
+      ? new PublicKey((paymentIntent as any).merchant.receivingAddress)
+      : publicKey;
 
     setStatus("confirming");
 
@@ -318,10 +367,15 @@ export default function PaymentPage() {
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
 
+  // Popup mode wrapper
+  const pageClass = isPopupMode
+    ? "fixed inset-0 z-[9999] flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 p-4"
+    : "min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 p-4";
+
   // Loading state
   if (status === "loading") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-900">
+      <div className={pageClass}>
         <Loader2 className="w-8 h-8 animate-spin text-accent-500" />
       </div>
     );
@@ -330,7 +384,7 @@ export default function PaymentPage() {
   // Error state
   if (status === "error") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 p-4">
+      <div className={pageClass}>
         <div className="max-w-md w-full bg-white dark:bg-neutral-800 rounded-2xl p-8 text-center shadow-soft">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
           <h1 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">
@@ -345,7 +399,7 @@ export default function PaymentPage() {
   // Expired state
   if (status === "expired") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 p-4">
+      <div className={pageClass}>
         <div className="max-w-md w-full bg-white dark:bg-neutral-800 rounded-2xl p-8 text-center shadow-soft">
           <Clock className="w-12 h-12 text-orange-500 mx-auto mb-4" />
           <h1 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">
@@ -362,7 +416,7 @@ export default function PaymentPage() {
   // Success state
   if (status === "success") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 p-4">
+      <div className={pageClass}>
         <div className="max-w-md w-full bg-white dark:bg-neutral-800 rounded-2xl p-8 text-center shadow-soft">
           <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
             <Check className="w-8 h-8 text-green-500" />
@@ -370,9 +424,15 @@ export default function PaymentPage() {
           <h1 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">
             Payment Complete
           </h1>
-          <p className="text-neutral-500 dark:text-neutral-400 mb-4">
-            {formatCurrency(paymentIntent?.amount || 0 / 100)} paid to {paymentIntent?.merchant.name}
-          </p>
+          {presale ? (
+            <p className="text-neutral-500 dark:text-neutral-400 mb-4">
+              You purchased {Number(presale.tokenQuantity).toLocaleString()} {presale.tokenName} Tokens
+            </p>
+          ) : (
+            <p className="text-neutral-500 dark:text-neutral-400 mb-4">
+              {formatCurrency((paymentIntent?.amount || 0) / 100)} paid to {paymentIntent?.merchant.name}
+            </p>
+          )}
           {txHash && (
             <a
               href={`https://basescan.org/tx/${txHash}`}
@@ -383,22 +443,31 @@ export default function PaymentPage() {
               View transaction <ExternalLink className="w-4 h-4" />
             </a>
           )}
+          {isPopupMode && (
+            <p className="text-xs text-neutral-400 mt-4">This window will close automatically...</p>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-900 p-4">
+    <div className={pageClass}>
       <div className="max-w-md w-full">
         {/* Header */}
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-white mb-1">
             Pay {paymentIntent?.merchant.name}
           </h1>
-          <p className="text-neutral-500 dark:text-neutral-400">
-            {paymentIntent?.description || "Complete your payment"}
-          </p>
+          {presale ? (
+            <p className="text-neutral-500 dark:text-neutral-400">
+              Purchasing {Number(presale.tokenQuantity).toLocaleString()} {presale.tokenName} Tokens
+            </p>
+          ) : (
+            <p className="text-neutral-500 dark:text-neutral-400">
+              {paymentIntent?.description || "Complete your payment"}
+            </p>
+          )}
         </div>
 
         {/* Payment Card */}
@@ -408,6 +477,11 @@ export default function PaymentPage() {
             <p className="text-4xl font-bold text-neutral-900 dark:text-white">
               {formatCurrency((paymentIntent?.amount || 0) / 100)}
             </p>
+            {presale && (
+              <p className="text-sm font-medium text-amber-500 mt-1">
+                {Number(presale.tokenQuantity).toLocaleString()} {presale.tokenName} @ ${presale.pricePerToken}
+              </p>
+            )}
             <p className="text-sm text-neutral-500 flex items-center justify-center gap-2 mt-2">
               <Clock className="w-4 h-4" />
               Expires in {getTimeRemaining()}

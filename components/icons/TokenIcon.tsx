@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-export type TokenId = "usdc" | "usdt" | "dai" | "frax" | "busd" | "tusd";
+export type TokenId = "usdc" | "usdt" | "dai" | "frax" | "busd" | "tusd" | "pyusd";
 
 interface TokenIconProps {
   tokenId: TokenId;
@@ -45,4 +45,5 @@ export const tokenData: Record<
   frax: { name: "Frax", symbol: "FRAX", color: "#000000", decimals: 18 },
   busd: { name: "Binance USD", symbol: "BUSD", color: "#F0B90B", decimals: 18 },
   tusd: { name: "TrueUSD", symbol: "TUSD", color: "#002868", decimals: 18 },
+  pyusd: { name: "PayPal USD", symbol: "PYUSD", color: "#0052FF", decimals: 6 },
 };

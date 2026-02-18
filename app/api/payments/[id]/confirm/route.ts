@@ -10,6 +10,7 @@ import {
 } from "@/lib/payments/monitor";
 import { TOKEN_METADATA } from "@/lib/chains/contracts";
 import { SOLANA_TOKEN_METADATA } from "@/lib/chains/solana";
+import { processSettlement } from "@/lib/settlements/processor";
 import type { ApiResponse } from "@/lib/types";
 
 interface PaymentConfirmation {
@@ -236,6 +237,40 @@ export async function POST(
       });
 
       // TODO: Trigger webhook for payment.confirmed
+
+      // Create settlement record if merchant prefers a different chain/token
+      const merchantSettings = paymentIntent.merchant.settings as Record<string, unknown> | null;
+      const settlementChain = merchantSettings?.settlementChain as string | undefined;
+      const settlementToken = merchantSettings?.settlementToken as string | undefined;
+      const settlementAddress = merchantSettings?.settlementAddress as string | undefined;
+
+      if (
+        settlementChain &&
+        settlementToken &&
+        settlementAddress &&
+        (settlementChain !== data.chain || settlementToken !== data.token)
+      ) {
+        const settlement = await prisma.settlement.create({
+          data: {
+            paymentId: payment.id,
+            merchantId: paymentIntent.merchantId,
+            sourceChain: data.chain,
+            sourceToken: data.token,
+            sourceAmount: payment.tokenAmount,
+            destinationChain: settlementChain,
+            destinationToken: settlementToken,
+            destinationAddress: settlementAddress,
+            destinationAmount: payment.tokenAmount, // 1:1 for stablecoins
+            status: "PENDING_SETTLEMENT",
+          },
+        });
+
+        // Fire-and-forget: start settlement processing via LI.FI bridge
+        // Cron endpoint acts as retry mechanism for any that fail or get missed
+        processSettlement(settlement.id).catch((err) => {
+          console.error("Settlement processing error:", err);
+        });
+      }
     }
 
     return NextResponse.json<ApiResponse<PaymentConfirmation>>({
